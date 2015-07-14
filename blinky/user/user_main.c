@@ -57,7 +57,7 @@ user_init()
     //&some_timer is the pointer
     //1000 is the fire time in ms
     //0 for once and 1 for repeating
-    os_timer_arm(&some_timer, 1000, 1);
+    os_timer_arm(&some_timer, 50, 1);
     
     //Start os task
     system_os_task(user_procTask, user_procTaskPrio,user_procTaskQueue, user_procTaskQueueLen);

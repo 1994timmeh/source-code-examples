@@ -1,2 +1,2 @@
-#define SSID "Your SSID"
-#define SSID_PASSWORD "Your Password Here"
+#define SSID "Hadwen AirPort"
+#define SSID_PASSWORD "5Awr2juW"
