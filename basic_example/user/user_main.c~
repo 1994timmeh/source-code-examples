@@ -54,22 +54,23 @@ LOCAL void ICACHE_FLASH_ATTR udp_recv(void *arg, char *pusrdata, unsigned short 
 		espconn_sent(udp, buf, len);
     } else if(strncmp(pusrdata, "LED", 3) == 0){
     	// LED Toggle Request
-		if (ledon)
-		{
+		if (ledon) {
 		    //Set GPIO2 to HIGH
 		    gpio_output_set(BIT2, 0, BIT2, 0);
 		    ledon=0;
-		}
-		else
-		{
+		} else {
 		    //Set GPIO2 to LOW
 		    gpio_output_set(0, BIT2, BIT2, 0);
 		    ledon=1;
 		}
-    } else {
-    	// Cast arg to espconn
+    } else if(strncmp(pusrdata, "RSSI", 4) == 0) {
+    	// Get RSSI data
+   		int len = os_sprintf(&buf, "{RSSI: %d}\n", wifi_station_get_rssi());
 		struct espconn* udp = arg;
-    	espconn_sent(udp, "{ERROR}\n", 7);
+    	espconn_sent(udp, buf, len);
+    } else {
+    	struct espconn* udp = arg;
+    	espconn_sent(udp, "ERROR", 5);
     }
     
 

@@ -6,6 +6,7 @@
 #include "user_config.h"
 #include "user_interface.h"
 #include "espconn.h"
+#include "mem.h"
 
 // Defines
 #define user_procTaskPrio        0
@@ -13,37 +14,72 @@
 
 // Variables
 os_event_t    user_procTaskQueue[user_procTaskQueueLen];
-
-// Functions
 static void loop(os_event_t *events);
-static void recv_callback (void *arg);
+void udp_init();
 
-// Recv data callback
-static void recv_callback (void *arg){
-	os_printf("Recieved data (apparently)\n\r");
-}
+static volatile os_timer_t some_timer; // Some timer
+uint32_t ledon = 0;
 
-//Main code function
-static void ICACHE_FLASH_ATTR loop(os_event_t *events) {  
-	uint8_t status = wifi_station_get_connect_status();  
-    os_printf("Status %d\n\r", status);
-    
+void some_timerfunc(void *arg) {
+	return;
+	
     //Do blinky stuff
-    if (GPIO_REG_READ(GPIO_OUT_ADDRESS) & BIT2) {
-        //Set GPIO2 to LOW
-        gpio_output_set(0, BIT2, BIT2, 0);
-    } else {
+    if (ledon)
+    {
         //Set GPIO2 to HIGH
         gpio_output_set(BIT2, 0, BIT2, 0);
+        ledon=0;
     }
-    
-    os_delay_us(1000000);
-    
-    // Tell FreeRTOS that this task is complete
-    system_os_post(user_procTaskPrio, 0, 0 );
+    else
+    {
+        //Set GPIO2 to LOW
+        gpio_output_set(0, BIT2, BIT2, 0);
+        ledon=1;
+    }
 }
 
-void user_set_station_config(){
+LOCAL void ICACHE_FLASH_ATTR udp_recv(void *arg, char *pusrdata, unsigned short length) {
+    os_printf("Received data: %s\n\r", pusrdata);
+    
+    if(strncmp(pusrdata, "ADC", 3) == 0){
+    	// ADC Value Request
+    	os_printf("Got ADC Request\n\r");
+		
+		// Cast arg to espconn
+		struct espconn* udp = arg;
+		
+		// Reply with ADC data
+		char buf[10];
+		int len = os_sprintf(&buf, "{ADC: %d}\n", system_adc_read());
+		espconn_sent(udp, buf, len);
+    } else if(strncmp(pusrdata, "LED", 3) == 0){
+    	// LED Toggle Request
+		if (ledon) {
+		    //Set GPIO2 to HIGH
+		    gpio_output_set(BIT2, 0, BIT2, 0);
+		    ledon=0;
+		} else {
+		    //Set GPIO2 to LOW
+		    gpio_output_set(0, BIT2, BIT2, 0);
+		    ledon=1;
+		}
+    } else if(strncmp(pusrdata, "RSSI", 4) == 0) {
+    	// Get RSSI data
+    	char buf[10];
+   		int len = os_sprintf(&buf, "{RSSI: %d}\n", wifi_station_get_rssi());
+		struct espconn* udp = arg;
+    	espconn_sent(udp, buf, len);
+    } else {
+    	struct espconn* udp = arg;
+    	espconn_sent(udp, "ERROR", 5);
+    }
+    
+
+        
+
+}
+
+void user_set_station_config( void ){
 	char ssid[32] = SSID;
     char password[64] = SSID_PASSWORD;
     struct station_config stationConf;
@@ -52,53 +88,54 @@ void user_set_station_config(){
     os_memcpy(&stationConf.ssid, ssid, 32);
     os_memcpy(&stationConf.password, password, 64);
     wifi_station_set_config(&stationConf);
+    
+    wifi_station_set_auto_connect(1);
+}
+
+LOCAL struct espconn udpconn;
+void udp_init() {
+        memset(&udpconn, 0, sizeof(struct espconn));
+        udpconn.type = ESPCONN_UDP;
+        udpconn.state = ESPCONN_NONE; // Becuase UDP
+        udpconn.proto.udp = (esp_udp *)os_zalloc(sizeof(esp_udp));
+        udpconn.proto.udp->local_port = 2500;
+        udpconn.proto.udp->remote_port = 2500;
+        espconn_regist_recvcb(&udpconn, udp_recv);
+        espconn_accept(&udpconn);
+        
+        // Create the UDP connection
+        espconn_create( &udpconn );
+        
+        os_printf("UDP Setup\n\r");
 }
 
 //Init function 
 void ICACHE_FLASH_ATTR user_init() {
-    char ssid[32] = SSID;
-    char password[64] = SSID_PASSWORD;
-    struct station_config stationConf;
-    struct espconn espconn;
-    struct _esp_tcp tcp_con;
-    gpio_init();
+	// Set the USART speed to be 9600 baud for debug prints
+    uart_div_modify(0, UART_CLK_FREQ / 9600);
     
-    os_delay_us(3000000);
-    
-    //Set GPIO2 to output mode
+    // Set the OPMODE
+	wifi_set_opmode(STATION_MODE);
+	
+	user_set_station_config();
+	
+	//Set GPIO2 to output mode
     PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO2_U, FUNC_GPIO2);
     
     //Set GPIO2 low
-    gpio_output_set(0, BIT2, BIT2, 0);
-    
-    // Set the USART speed to be 9600 baud for debug prints
-    uart_div_modify(0, UART_CLK_FREQ / 9600);
-    
-    wifi_set_opmode(STATIONAP_MODE);
-    user_set_station_config();
-
-	/*tcp_con.remote_port = 2000;
-    tcp_con.local_port = 2000;
-    tcp_con.local_ip[0] = 10;
-    tcp_con.local_ip[1] = 0;
-    tcp_con.local_ip[2] = 1;
-    tcp_con.local_ip[3] = 100;
-    
-    tcp_con.remote_ip[0] = 10;
-    tcp_con.remote_ip[1] = 0;
-    tcp_con.remote_ip[2] = 1;
-    tcp_con.remote_ip[3] = 100;
-    
-    espconn.type = ESPCONN_TCP;
-    espconn.state = ESPCONN_LISTEN;
-    espconn.proto.tcp = &tcp_con;
-    espconn.recv_callback = (void*)recv_callback;
-   
-	espconn_accept(&espconn);*/
+    gpio_output_set(BIT2, 0, BIT2, 0);
 	
-    //Start os task
-    system_os_task(loop, user_procTaskPrio,user_procTaskQueue, user_procTaskQueueLen);
+	//Disarm timer
+    os_timer_disarm(&some_timer);
+ 
+    //Setup timer
+    os_timer_setfn(&some_timer, (os_timer_func_t *)some_timerfunc, NULL);
+ 
+    //Arm the timer
+    //&some_timer is the pointer
+    //1000 is the fire time in ms
+    //0 for once and 1 for repeating
+    os_timer_arm(&some_timer, 500, 1);
     
-	// Tell FreeRTOS that this task has completed for now (ever in this case)
-    system_os_post(user_procTaskPrio, 0, 0 );
+    udp_init();
 }
